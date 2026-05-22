@@ -12,7 +12,6 @@ const initDB = async () => {
       name VARCHAR(255) NOT NULL,
       email VARCHAR(255) UNIQUE NOT NULL,
       password_hash VARCHAR(255),
-      google_id VARCHAR(255),
       avatar_url VARCHAR(255),
       points INTEGER DEFAULT 0,
       level INTEGER DEFAULT 1,
@@ -25,6 +24,7 @@ const initDB = async () => {
       name VARCHAR(255) NOT NULL,
       icon VARCHAR(50) DEFAULT 'ti-star',
       color VARCHAR(50) DEFAULT 'teal',
+      frequency VARCHAR(20) DEFAULT 'daily',
       points_per_day INTEGER DEFAULT 20,
       created_at TIMESTAMP DEFAULT NOW(),
       is_active BOOLEAN DEFAULT true
@@ -38,6 +38,12 @@ const initDB = async () => {
       UNIQUE(habit_id, completed_at)
     );
   `)
+
+  // Adicionar coluna frequency se não existir (para bancos já criados)
+  await pool.query(`
+    ALTER TABLE habits ADD COLUMN IF NOT EXISTS frequency VARCHAR(20) DEFAULT 'daily';
+  `).catch(() => {})
+
   console.log('Banco de dados iniciado com sucesso')
 }
 
