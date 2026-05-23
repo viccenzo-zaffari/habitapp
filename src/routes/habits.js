@@ -5,22 +5,31 @@ const auth = require('../middleware/auth')
 const router = express.Router()
 router.use(auth)
 
-// Calcular streak de um hábito (função auxiliar)
+// Data de hoje no fuso de Brasília (UTC-3)
+const todayBrasilia = () => {
+  const now = new Date()
+  const brasilia = new Date(now.getTime() - 3 * 60 * 60 * 1000)
+  return brasilia.toISOString().slice(0, 10)
+}
+
+const yesterdayBrasilia = () => {
+  const now = new Date()
+  const brasilia = new Date(now.getTime() - 3 * 60 * 60 * 1000 - 86400000)
+  return brasilia.toISOString().slice(0, 10)
+}
+
+// Calcular streak de um hábito
 const calcStreak = async (habitId) => {
   const result = await pool.query(
-    `SELECT completed_at::date as day
-     FROM habit_logs
-     WHERE habit_id = $1
-     ORDER BY completed_at DESC`,
+    `SELECT completed_at::date as day FROM habit_logs WHERE habit_id = $1 ORDER BY completed_at DESC`,
     [habitId]
   )
   if (result.rows.length === 0) return 0
 
   const days = result.rows.map(r => r.day.toISOString().slice(0, 10))
-  const today = new Date().toISOString().slice(0, 10)
-  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10)
+  const today = todayBrasilia()
+  const yesterday = yesterdayBrasilia()
 
-  // streak só conta se o mais recente for hoje ou ontem
   if (days[0] !== today && days[0] !== yesterday) return 0
 
   let streak = 1
@@ -28,30 +37,27 @@ const calcStreak = async (habitId) => {
     const prev = new Date(days[i - 1])
     const curr = new Date(days[i])
     const diff = (prev - curr) / 86400000
-    if (diff === 1) {
-      streak++
-    } else {
-      break
-    }
+    if (diff === 1) streak++
+    else break
   }
   return streak
 }
 
-// Listar hábitos com streak e status de hoje
+// Listar hábitos
 router.get('/', async (req, res) => {
+  const today = todayBrasilia()
   try {
     const habits = await pool.query(
       `SELECT h.*,
         CASE WHEN hl_today.id IS NOT NULL THEN true ELSE false END as completed_today
       FROM habits h
       LEFT JOIN habit_logs hl_today
-        ON hl_today.habit_id = h.id AND hl_today.completed_at = CURRENT_DATE
+        ON hl_today.habit_id = h.id AND hl_today.completed_at = $2
       WHERE h.user_id = $1 AND h.is_active = true
       ORDER BY h.created_at ASC`,
-      [req.userId]
+      [req.userId, today]
     )
 
-    // Calcular streak para cada hábito
     const withStreak = await Promise.all(
       habits.rows.map(async h => ({
         ...h,
@@ -109,19 +115,20 @@ router.delete('/:id', async (req, res) => {
 // Marcar/desmarcar hábito de hoje
 router.post('/:id/toggle', async (req, res) => {
   const habitId = req.params.id
+  const today = todayBrasilia()
   try {
     const habit = await pool.query('SELECT * FROM habits WHERE id=$1 AND user_id=$2', [habitId, req.userId])
     if (!habit.rows[0]) return res.status(404).json({ error: 'Hábito não encontrado' })
 
     const existing = await pool.query(
-      'SELECT id FROM habit_logs WHERE habit_id=$1 AND completed_at=CURRENT_DATE', [habitId]
+      'SELECT id FROM habit_logs WHERE habit_id=$1 AND completed_at=$2', [habitId, today]
     )
 
     if (existing.rows.length > 0) {
-      await pool.query('DELETE FROM habit_logs WHERE habit_id=$1 AND completed_at=CURRENT_DATE', [habitId])
+      await pool.query('DELETE FROM habit_logs WHERE habit_id=$1 AND completed_at=$2', [habitId, today])
       await pool.query('UPDATE users SET points = GREATEST(0, points - $1) WHERE id=$2', [habit.rows[0].points_per_day, req.userId])
     } else {
-      await pool.query('INSERT INTO habit_logs (habit_id, user_id, completed_at) VALUES ($1, $2, CURRENT_DATE)', [habitId, req.userId])
+      await pool.query('INSERT INTO habit_logs (habit_id, user_id, completed_at) VALUES ($1, $2, $3)', [habitId, req.userId, today])
       await pool.query('UPDATE users SET points = points + $1 WHERE id=$2', [habit.rows[0].points_per_day, req.userId])
     }
 
@@ -141,13 +148,14 @@ router.post('/:id/toggle', async (req, res) => {
 // Histórico de logs
 router.get('/:id/history', async (req, res) => {
   const days = req.query.days || 30
+  const today = todayBrasilia()
   try {
     const result = await pool.query(
       `SELECT completed_at FROM habit_logs
        WHERE habit_id=$1 AND user_id=$2
-       AND completed_at >= CURRENT_DATE - ($3 || ' days')::INTERVAL
+       AND completed_at >= $3::date - ($4 || ' days')::INTERVAL
        ORDER BY completed_at DESC`,
-      [req.params.id, req.userId, days]
+      [req.params.id, req.userId, today, days]
     )
     res.json(result.rows.map(r => r.completed_at))
   } catch (err) {
@@ -156,16 +164,17 @@ router.get('/:id/history', async (req, res) => {
   }
 })
 
-// Logs da semana atual
+// Logs da semana atual (semana começa na segunda em Brasília)
 router.get('/:id/week', async (req, res) => {
+  const today = todayBrasilia()
   try {
     const result = await pool.query(
       `SELECT completed_at FROM habit_logs
        WHERE habit_id=$1 AND user_id=$2
-       AND completed_at >= date_trunc('week', CURRENT_DATE)
-       AND completed_at <= CURRENT_DATE
+       AND completed_at >= date_trunc('week', $3::date)
+       AND completed_at <= $3::date
        ORDER BY completed_at DESC`,
-      [req.params.id, req.userId]
+      [req.params.id, req.userId, today]
     )
     res.json(result.rows.map(r => r.completed_at))
   } catch (err) {
