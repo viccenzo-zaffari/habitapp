@@ -3,32 +3,25 @@ import api from '../services/api'
 
 const ICONS = ['ti-star', 'ti-run', 'ti-book', 'ti-moon', 'ti-apple', 'ti-droplet', 'ti-brain', 'ti-heart', 'ti-pencil', 'ti-music', 'ti-walk', 'ti-salad']
 const COLORS = [
-  { name: 'teal', hex: '#1D9E75' }, { name: 'purple', hex: '#534AB7' },
-  { name: 'coral', hex: '#D85A30' }, { name: 'amber', hex: '#BA7517' },
-  { name: 'blue', hex: '#185FA5' }, { name: 'pink', hex: '#993556' },
-]
-const FREQUENCIES = [
-  { value: 'daily', label: 'Todo dia' },
-  { value: 'weekly_1', label: '1x por semana' },
-  { value: 'weekly_2', label: '2x por semana' },
-  { value: 'weekly_3', label: '3x por semana' },
-  { value: 'weekly_4', label: '4x por semana' },
-  { value: 'weekly_5', label: '5x por semana' },
+  { name: 'teal', hex: '#1D9E75' },
+  { name: 'purple', hex: '#534AB7' },
+  { name: 'coral', hex: '#D85A30' },
+  { name: 'amber', hex: '#BA7517' },
+  { name: 'blue', hex: '#185FA5' },
+  { name: 'pink', hex: '#993556' },
 ]
 
 const s = {
   overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', zIndex: 100 },
   modal: { background: 'white', borderRadius: '20px 20px 0 0', padding: '1.5rem', width: '100%', maxWidth: 480 },
   title: { fontSize: 18, fontWeight: 700, marginBottom: '1rem' },
-  label: { fontSize: 13, color: '#888', marginBottom: 6, display: 'block', marginTop: 14 },
+  label: { fontSize: 13, color: '#888', marginBottom: 6, display: 'block' },
   input: { width: '100%', padding: '12px 14px', borderRadius: 10, border: '1.5px solid #e0e0e0', fontSize: 15, fontFamily: 'inherit', outline: 'none' },
-  iconGrid: { display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 8 },
+  iconGrid: { display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 8, marginBottom: '1rem' },
   iconBtn: { padding: 10, borderRadius: 10, border: '2px solid transparent', background: '#f5f5f5', cursor: 'pointer', fontSize: 20, textAlign: 'center' },
-  colorRow: { display: 'flex', gap: 8 },
+  colorRow: { display: 'flex', gap: 8, marginBottom: '1.5rem' },
   colorDot: { width: 32, height: 32, borderRadius: '50%', cursor: 'pointer', border: '3px solid transparent' },
-  freqGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 },
-  freqBtn: { padding: '10px', borderRadius: 10, border: '1.5px solid #e0e0e0', background: 'white', cursor: 'pointer', fontSize: 13, fontFamily: 'inherit', textAlign: 'center' },
-  saveBtn: { width: '100%', padding: 14, borderRadius: 12, border: 'none', background: '#1D9E75', color: 'white', fontSize: 15, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', marginTop: 20 },
+  saveBtn: { width: '100%', padding: 14, borderRadius: 12, border: 'none', background: '#1D9E75', color: 'white', fontSize: 15, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
   cancelBtn: { width: '100%', padding: 12, borderRadius: 12, border: 'none', background: 'transparent', color: '#888', fontSize: 14, cursor: 'pointer', marginTop: 8, fontFamily: 'inherit' }
 }
 
@@ -36,11 +29,10 @@ export default function AddHabitModal({ onClose, onAdd }) {
   const [name, setName] = useState('')
   const [icon, setIcon] = useState('ti-star')
   const [color, setColor] = useState('teal')
-  const [frequency, setFrequency] = useState('daily')
 
   const handleSave = async () => {
     if (!name.trim()) return
-    await api.post('/api/habits', { name, icon, color, frequency })
+    await api.post('/api/habits', { name, icon, color })
     onAdd()
   }
 
@@ -50,21 +42,14 @@ export default function AddHabitModal({ onClose, onAdd }) {
         <div style={s.title}>Novo hábito</div>
 
         <label style={s.label}>Nome do hábito</label>
-        <input style={s.input} placeholder="Ex: Ir à academia" value={name}
+        <input style={{ ...s.input, marginBottom: '1rem' }} placeholder="Ex: Meditar 10 minutos" value={name}
           onChange={e => setName(e.target.value)} autoFocus />
-
-        <label style={s.label}>Frequência</label>
-        <div style={s.freqGrid}>
-          {FREQUENCIES.map(f => (
-            <button key={f.value} style={{ ...s.freqBtn, ...(frequency === f.value ? { borderColor: '#1D9E75', color: '#1D9E75', fontWeight: 600 } : {}) }}
-              onClick={() => setFrequency(f.value)}>{f.label}</button>
-          ))}
-        </div>
 
         <label style={s.label}>Ícone</label>
         <div style={s.iconGrid}>
           {ICONS.map(ic => (
-            <button key={ic} style={{ ...s.iconBtn, borderColor: icon === ic ? '#1D9E75' : 'transparent' }} onClick={() => setIcon(ic)}>
+            <button key={ic} style={{ ...s.iconBtn, borderColor: icon === ic ? '#1D9E75' : 'transparent' }}
+              onClick={() => setIcon(ic)}>
               <i className={`ti ${ic}`} />
             </button>
           ))}

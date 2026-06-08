@@ -183,3 +183,15 @@ router.get('/:id/week', async (req, res) => {
 })
 
 module.exports = router
+
+// Rota temporária para limpar logs corrompidos (usar uma vez)
+router.delete('/reset-logs/all', async (req, res) => {
+  try {
+    await pool.query('DELETE FROM habit_logs WHERE user_id=$1', [req.userId])
+    await pool.query('UPDATE users SET points=0, level=1 WHERE id=$1', [req.userId])
+    res.json({ success: true, message: 'Logs limpos com sucesso!' })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Erro ao limpar logs' })
+  }
+})

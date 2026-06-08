@@ -2,12 +2,9 @@ import { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import api from '../services/api'
 import AddHabitModal from '../components/AddHabitModal'
-import HabitCalendar from '../components/HabitCalendar'
-import EditHabitModal from '../components/EditHabitModal'
 
 const LEVEL_NAMES = ['', 'Iniciante', 'Aprendiz', 'Praticante', 'Guerreiro', 'Mestre', 'Lendário']
 const COLOR_MAP = { teal: '#1D9E75', purple: '#534AB7', coral: '#D85A30', amber: '#BA7517', blue: '#185FA5', pink: '#993556' }
-const FREQ_LABEL = { daily: 'Todo dia', weekly_1: '1x por semana', weekly_2: '2x por semana', weekly_3: '3x por semana', weekly_4: '4x por semana', weekly_5: '5x por semana' }
 
 const s = {
   page: { minHeight: '100vh', background: '#f5f5f5', paddingBottom: 80 },
@@ -24,47 +21,28 @@ const s = {
   levelPill: { display: 'inline-flex', alignItems: 'center', gap: 4, background: '#EEEDFE', borderRadius: 20, padding: '3px 10px', marginTop: 4 },
   levelText: { fontSize: 12, fontWeight: 600, color: '#3C3489' },
   sectionTitle: { fontSize: 13, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 },
-  habitCard: { background: 'white', borderRadius: 14, padding: '14px', marginBottom: 10, boxShadow: '0 1px 4px rgba(0,0,0,0.05)' },
-  habitTop: { display: 'flex', alignItems: 'center', gap: 12 },
-  checkCircle: { width: 34, height: 34, borderRadius: '50%', border: '2px solid #e0e0e0', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'all 0.2s', cursor: 'pointer' },
+  habitCard: { background: 'white', borderRadius: 14, padding: '14px', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 12, boxShadow: '0 1px 4px rgba(0,0,0,0.05)', cursor: 'pointer', transition: 'transform 0.1s' },
+  checkCircle: { width: 34, height: 34, borderRadius: '50%', border: '2px solid #e0e0e0', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'all 0.2s' },
   habitName: { fontSize: 15, fontWeight: 600, color: '#1a1a1a' },
-  habitMeta: { fontSize: 12, color: '#888', marginTop: 2 },
-  habitActions: { marginLeft: 'auto', display: 'flex', gap: 4 },
-  actionBtn: { background: 'none', border: 'none', cursor: 'pointer', padding: '4px 6px', borderRadius: 6, color: '#bbb', fontSize: 16 },
-  pts: { fontSize: 12, fontWeight: 600 },
-  weekDots: { display: 'flex', gap: 4, marginTop: 10, paddingLeft: 46 },
-  weekDot: { width: 28, height: 28, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 600, border: '1.5px solid #e0e0e0', color: '#999' },
+  habitStreak: { fontSize: 12, color: '#888', marginTop: 2 },
+  pts: { marginLeft: 'auto', fontSize: 12, fontWeight: 600, color: '#1D9E75' },
   addBtn: { width: '100%', padding: 14, borderRadius: 14, border: '2px dashed #e0e0e0', background: 'transparent', cursor: 'pointer', fontSize: 14, color: '#999', fontFamily: 'inherit' },
   progressWrap: { background: '#f0f0f0', borderRadius: 6, height: 8, marginBottom: 16, overflow: 'hidden' },
   progressFill: { height: '100%', borderRadius: 6, background: '#1D9E75', transition: 'width 0.4s' },
-  logoutBtn: { background: 'none', border: 'none', cursor: 'pointer', color: '#999', fontSize: 13, padding: 4 },
-  calendarToggle: { background: 'none', border: 'none', cursor: 'pointer', color: '#aaa', fontSize: 14, padding: '2px 6px', borderRadius: 6 },
-  freqBadge: { display: 'inline-block', background: '#f0f0f0', borderRadius: 6, padding: '2px 7px', fontSize: 11, color: '#666', marginLeft: 6 }
+  logoutBtn: { background: 'none', border: 'none', cursor: 'pointer', color: '#999', fontSize: 13, padding: 4 }
 }
 
 export default function Home() {
   const { user, setUser, logout } = useAuth()
   const [habits, setHabits] = useState([])
   const [showAdd, setShowAdd] = useState(false)
-  const [editHabit, setEditHabit] = useState(null)
-  const [expandedCalendar, setExpandedCalendar] = useState(null)
   const [stats, setStats] = useState(null)
-  const [weekLogs, setWeekLogs] = useState({})
 
   useEffect(() => { fetchHabits(); fetchStats() }, [])
 
   const fetchHabits = async () => {
     const res = await api.get('/api/habits')
     setHabits(res.data)
-    // buscar logs da semana para hábitos semanais
-    const logs = {}
-    for (const h of res.data) {
-      if (h.frequency !== 'daily') {
-        const r = await api.get(`/api/habits/${h.id}/week`)
-        logs[h.id] = r.data
-      }
-    }
-    setWeekLogs(logs)
   }
 
   const fetchStats = async () => {
@@ -73,85 +51,22 @@ export default function Home() {
   }
 
   const toggleHabit = async (habit) => {
-    await api.post(`/api/habits/${habit.id}/toggle`)
-    fetchHabits()
+    const res = await api.post(`/api/habits/${habit.id}/toggle`)
+    setHabits(prev => prev.map(h =>
+      h.id === habit.id
+        ? { ...h, completed_today: res.data.completed, current_streak: res.data.completed ? h.current_streak + 1 : Math.max(0, h.current_streak - 1) }
+        : h
+    ))
     const userRes = await api.get('/api/auth/me')
     setUser(userRes.data)
     fetchStats()
   }
 
-  const deleteHabit = async (id) => {
-    if (!confirm('Excluir este hábito?')) return
-    await api.delete(`/api/habits/${id}`)
-    fetchHabits()
-  }
-
-  const dailyHabits = habits.filter(h => h.frequency === 'daily')
-  const weeklyHabits = habits.filter(h => h.frequency !== 'daily')
   const completedToday = habits.filter(h => h.completed_today).length
   const totalHabits = habits.length
   const progress = totalHabits > 0 ? (completedToday / totalHabits) * 100 : 0
+
   const maxStreak = habits.reduce((max, h) => Math.max(max, parseInt(h.current_streak) || 0), 0)
-
-  const renderHabit = (habit) => {
-    const done = habit.completed_today
-    const color = COLOR_MAP[habit.color] || COLOR_MAP.teal
-    const isWeekly = habit.frequency !== 'daily'
-    const timesPerWeek = isWeekly ? parseInt(habit.frequency.split('_')[1]) : 0
-    const doneThisWeek = weekLogs[habit.id]?.length || 0
-
-    return (
-      <div key={habit.id} style={s.habitCard}>
-        <div style={s.habitTop}>
-          <div
-            style={{ ...s.checkCircle, ...(done ? { background: color, borderColor: color } : {}) }}
-            onClick={() => toggleHabit(habit)}
-          >
-            {done && <i className="ti ti-check" style={{ color: 'white', fontSize: 16 }} />}
-          </div>
-          <div style={{ flex: 1 }}>
-            <div style={s.habitName}>
-              {habit.name}
-              {isWeekly && <span style={s.freqBadge}>{FREQ_LABEL[habit.frequency]}</span>}
-            </div>
-            <div style={s.habitMeta}>
-              {parseInt(habit.current_streak) > 0
-                ? `🔥 ${habit.current_streak} dias seguidos`
-                : isWeekly ? `${doneThisWeek}/${timesPerWeek}x esta semana` : 'Não feito hoje'}
-            </div>
-          </div>
-          <div style={s.habitActions}>
-            <button style={s.actionBtn} onClick={() => setExpandedCalendar(expandedCalendar === habit.id ? null : habit.id)} title="Calendário">
-              <i className="ti ti-calendar" />
-            </button>
-            <button style={s.actionBtn} onClick={() => setEditHabit(habit)} title="Editar">
-              <i className="ti ti-pencil" />
-            </button>
-            <button style={{ ...s.actionBtn, color: '#ffaaaa' }} onClick={() => deleteHabit(habit.id)} title="Excluir">
-              <i className="ti ti-trash" />
-            </button>
-          </div>
-        </div>
-
-        {isWeekly && (
-          <div style={s.weekDots}>
-            {Array.from({ length: timesPerWeek }).map((_, i) => (
-              <div key={i} style={{
-                ...s.weekDot,
-                ...(i < doneThisWeek ? { background: color, borderColor: color, color: 'white' } : {})
-              }}>
-                {i < doneThisWeek ? '✓' : i + 1}
-              </div>
-            ))}
-          </div>
-        )}
-
-        {expandedCalendar === habit.id && (
-          <HabitCalendar habitId={habit.id} color={color} />
-        )}
-      </div>
-    )
-  }
 
   return (
     <div style={s.page}>
@@ -197,21 +112,30 @@ export default function Home() {
           </div>
         </div>
 
-        {dailyHabits.length > 0 && (
-          <>
-            <div style={s.sectionTitle}>Hábitos diários</div>
-            {dailyHabits.map(renderHabit)}
-          </>
-        )}
+        <div style={s.sectionTitle}>Hábitos de hoje</div>
 
-        {weeklyHabits.length > 0 && (
-          <>
-            <div style={{ ...s.sectionTitle, marginTop: 16 }}>Hábitos semanais</div>
-            {weeklyHabits.map(renderHabit)}
-          </>
-        )}
+        {habits.map(habit => {
+          const done = habit.completed_today
+          const color = COLOR_MAP[habit.color] || COLOR_MAP.teal
+          return (
+            <div key={habit.id} style={s.habitCard} onClick={() => toggleHabit(habit)}>
+              <div style={{ ...s.checkCircle, ...(done ? { background: color, borderColor: color } : {}) }}>
+                {done && <i className="ti ti-check" style={{ color: 'white', fontSize: 16 }} />}
+              </div>
+              <div>
+                <div style={s.habitName}>{habit.name}</div>
+                <div style={s.habitStreak}>
+                  {parseInt(habit.current_streak) > 0
+                    ? `🔥 ${habit.current_streak} dias seguidos`
+                    : 'Não feito hoje'}
+                </div>
+              </div>
+              <div style={{ ...s.pts, color: done ? color : '#ccc' }}>+{habit.points_per_day} pts</div>
+            </div>
+          )
+        })}
 
-        <button style={{ ...s.addBtn, marginTop: dailyHabits.length + weeklyHabits.length > 0 ? 8 : 0 }} onClick={() => setShowAdd(true)}>
+        <button style={s.addBtn} onClick={() => setShowAdd(true)}>
           + Adicionar novo hábito
         </button>
 
@@ -230,8 +154,12 @@ export default function Home() {
         )}
       </div>
 
-      {showAdd && <AddHabitModal onClose={() => setShowAdd(false)} onAdd={() => { fetchHabits(); setShowAdd(false) }} />}
-      {editHabit && <EditHabitModal habit={editHabit} onClose={() => setEditHabit(null)} onSave={() => { fetchHabits(); setEditHabit(null) }} />}
+      {showAdd && (
+        <AddHabitModal
+          onClose={() => setShowAdd(false)}
+          onAdd={() => { fetchHabits(); setShowAdd(false) }}
+        />
+      )}
     </div>
   )
 }
