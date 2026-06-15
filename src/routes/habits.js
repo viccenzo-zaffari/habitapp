@@ -7,8 +7,7 @@ router.use(auth)
 
 const todayBrasilia = () => {
   const now = new Date()
-  const offset = -3 * 60
-  const local = new Date(now.getTime() + (offset + now.getTimezoneOffset()) * 60000)
+  const local = new Date(now.getTime() + (-3 * 60 + now.getTimezoneOffset()) * 60000)
   return local.toISOString().slice(0, 10)
 }
 
@@ -53,7 +52,7 @@ router.get('/', async (req, res) => {
     )
     res.json(withStreak)
   } catch (err) {
-    console.error(err)
+    console.error('GET /habits erro:', err)
     res.status(500).json({ error: 'Erro ao buscar hábitos' })
   }
 })
@@ -68,6 +67,7 @@ router.post('/', async (req, res) => {
     )
     res.json(result.rows[0])
   } catch (err) {
+    console.error('POST /habits erro:', err)
     res.status(500).json({ error: 'Erro ao criar hábito' })
   }
 })
@@ -94,44 +94,43 @@ router.delete('/:id', async (req, res) => {
   }
 })
 
+// Toggle simplificado ao máximo
 router.post('/:id/toggle', async (req, res) => {
-  const habitId = req.params.id
+  const habitId = parseInt(req.params.id)
   const today = todayBrasilia()
+
+  console.log(`TOGGLE habitId=${habitId} userId=${req.userId} today=${today}`)
+
   try {
-    const habit = await pool.query('SELECT * FROM habits WHERE id=$1 AND user_id=$2', [habitId, req.userId])
-    if (!habit.rows[0]) return res.status(404).json({ error: 'Hábito não encontrado' })
-
-    // Verifica estado ATUAL no banco antes de qualquer mudança
+    // 1. Verifica se já tem log hoje
     const existing = await pool.query(
-      'SELECT id FROM habit_logs WHERE habit_id=$1 AND completed_at=$2', [habitId, today]
+      'SELECT id FROM habit_logs WHERE habit_id=$1 AND user_id=$2 AND completed_at=$3',
+      [habitId, req.userId, today]
     )
-    const wasCompleted = existing.rows.length > 0
+    const jaEstaFeito = existing.rows.length > 0
+    console.log(`jaEstaFeito=${jaEstaFeito}`)
 
-    if (wasCompleted) {
-      // Estava marcado → desmarca
-      await pool.query('DELETE FROM habit_logs WHERE habit_id=$1 AND completed_at=$2', [habitId, today])
-      await pool.query('UPDATE users SET points = GREATEST(0, points - $1) WHERE id=$2', [habit.rows[0].points_per_day, req.userId])
+    if (jaEstaFeito) {
+      // Desmarca
+      await pool.query(
+        'DELETE FROM habit_logs WHERE habit_id=$1 AND user_id=$2 AND completed_at=$3',
+        [habitId, req.userId, today]
+      )
+      console.log('Desmarcado')
+      return res.json({ completed: false, streak: 0, points: 0, level: 1 })
     } else {
-      // Não estava marcado → marca
-      await pool.query('INSERT INTO habit_logs (habit_id, user_id, completed_at) VALUES ($1, $2, $3)', [habitId, req.userId, today])
-      await pool.query('UPDATE users SET points = points + $1 WHERE id=$2', [habit.rows[0].points_per_day, req.userId])
+      // Marca
+      await pool.query(
+        'INSERT INTO habit_logs (habit_id, user_id, completed_at) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING',
+        [habitId, req.userId, today]
+      )
+      console.log('Marcado')
+      const streak = await calcStreak(habitId)
+      return res.json({ completed: true, streak, points: 0, level: 1 })
     }
-
-    await pool.query(`
-      UPDATE users SET level = CASE
-        WHEN points < 100 THEN 1 WHEN points < 300 THEN 2 WHEN points < 600 THEN 3
-        WHEN points < 1000 THEN 4 WHEN points < 2000 THEN 5 ELSE 6
-      END WHERE id=$1`, [req.userId])
-
-    const nowCompleted = !wasCompleted
-    const streak = await calcStreak(habitId)
-    const userRes = await pool.query('SELECT points, level FROM users WHERE id=$1', [req.userId])
-
-    // Retorna o estado NOVO (oposto do que era antes)
-    res.json({ completed: nowCompleted, streak, points: userRes.rows[0].points, level: userRes.rows[0].level })
   } catch (err) {
-    console.error(err)
-    res.status(500).json({ error: 'Erro ao registrar hábito' })
+    console.error('TOGGLE erro:', err)
+    res.status(500).json({ error: err.message })
   }
 })
 
