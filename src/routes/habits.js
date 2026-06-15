@@ -30,8 +30,7 @@ const calcStreak = async (habitId) => {
   for (let i = 1; i < days.length; i++) {
     const prev = new Date(days[i - 1] + 'T12:00:00Z')
     const curr = new Date(days[i] + 'T12:00:00Z')
-    const diff = Math.round((prev - curr) / 86400000)
-    if (diff === 1) streak++
+    if (Math.round((prev - curr) / 86400000) === 1) streak++
     else break
   }
   return streak
@@ -102,18 +101,20 @@ router.post('/:id/toggle', async (req, res) => {
     const habit = await pool.query('SELECT * FROM habits WHERE id=$1 AND user_id=$2', [habitId, req.userId])
     if (!habit.rows[0]) return res.status(404).json({ error: 'Hábito não encontrado' })
 
+    // Verifica estado ATUAL no banco antes de qualquer mudança
     const existing = await pool.query(
       'SELECT id FROM habit_logs WHERE habit_id=$1 AND completed_at=$2', [habitId, today]
     )
+    const wasCompleted = existing.rows.length > 0
 
-    let completed = false
-    if (existing.rows.length > 0) {
+    if (wasCompleted) {
+      // Estava marcado → desmarca
       await pool.query('DELETE FROM habit_logs WHERE habit_id=$1 AND completed_at=$2', [habitId, today])
       await pool.query('UPDATE users SET points = GREATEST(0, points - $1) WHERE id=$2', [habit.rows[0].points_per_day, req.userId])
     } else {
+      // Não estava marcado → marca
       await pool.query('INSERT INTO habit_logs (habit_id, user_id, completed_at) VALUES ($1, $2, $3)', [habitId, req.userId, today])
       await pool.query('UPDATE users SET points = points + $1 WHERE id=$2', [habit.rows[0].points_per_day, req.userId])
-      completed = true
     }
 
     await pool.query(`
@@ -122,9 +123,12 @@ router.post('/:id/toggle', async (req, res) => {
         WHEN points < 1000 THEN 4 WHEN points < 2000 THEN 5 ELSE 6
       END WHERE id=$1`, [req.userId])
 
+    const nowCompleted = !wasCompleted
     const streak = await calcStreak(habitId)
     const userRes = await pool.query('SELECT points, level FROM users WHERE id=$1', [req.userId])
-    res.json({ completed, streak, points: userRes.rows[0].points, level: userRes.rows[0].level })
+
+    // Retorna o estado NOVO (oposto do que era antes)
+    res.json({ completed: nowCompleted, streak, points: userRes.rows[0].points, level: userRes.rows[0].level })
   } catch (err) {
     console.error(err)
     res.status(500).json({ error: 'Erro ao registrar hábito' })
