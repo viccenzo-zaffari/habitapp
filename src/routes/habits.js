@@ -5,13 +5,21 @@ const auth = require('../middleware/auth')
 const router = express.Router()
 router.use(auth)
 
-const todayBrasilia = () => {
+// Fallback caso o cliente não envie a data (não deveria acontecer)
+const todayFallback = () => {
   const now = new Date()
   const local = new Date(now.getTime() + (-3 * 60 + now.getTimezoneOffset()) * 60000)
   return local.toISOString().slice(0, 10)
 }
 
-const calcStreak = async (habitId) => {
+const getClientDate = (req) => {
+  const d = req.query.date || req.body.date
+  // Valida formato YYYY-MM-DD
+  if (d && /^\d{4}-\d{2}-\d{2}$/.test(d)) return d
+  return todayFallback()
+}
+
+const calcStreak = async (habitId, today) => {
   const result = await pool.query(
     `SELECT completed_at::date as day FROM habit_logs WHERE habit_id = $1 ORDER BY completed_at DESC`,
     [habitId]
@@ -22,7 +30,6 @@ const calcStreak = async (habitId) => {
     d.setUTCHours(12)
     return d.toISOString().slice(0, 10)
   })
-  const today = todayBrasilia()
   const yesterday = new Date(new Date(today + 'T12:00:00Z').getTime() - 86400000).toISOString().slice(0, 10)
   if (days[0] !== today && days[0] !== yesterday) return 0
   let streak = 1
@@ -36,7 +43,7 @@ const calcStreak = async (habitId) => {
 }
 
 router.get('/', async (req, res) => {
-  const today = todayBrasilia()
+  const today = getClientDate(req)
   try {
     const habits = await pool.query(
       `SELECT h.*,
@@ -48,7 +55,7 @@ router.get('/', async (req, res) => {
       [req.userId, today]
     )
     const withStreak = await Promise.all(
-      habits.rows.map(async h => ({ ...h, current_streak: await calcStreak(h.id) }))
+      habits.rows.map(async h => ({ ...h, current_streak: await calcStreak(h.id, today) }))
     )
     res.json(withStreak)
   } catch (err) {
@@ -67,7 +74,6 @@ router.post('/', async (req, res) => {
     )
     res.json(result.rows[0])
   } catch (err) {
-    console.error('POST /habits erro:', err)
     res.status(500).json({ error: 'Erro ao criar hábito' })
   }
 })
@@ -94,40 +100,45 @@ router.delete('/:id', async (req, res) => {
   }
 })
 
-// Toggle simplificado ao máximo
 router.post('/:id/toggle', async (req, res) => {
   const habitId = parseInt(req.params.id)
-  const today = todayBrasilia()
-
-  console.log(`TOGGLE habitId=${habitId} userId=${req.userId} today=${today}`)
+  const today = getClientDate(req)
 
   try {
-    // 1. Verifica se já tem log hoje
     const existing = await pool.query(
       'SELECT id FROM habit_logs WHERE habit_id=$1 AND user_id=$2 AND completed_at=$3',
       [habitId, req.userId, today]
     )
     const jaEstaFeito = existing.rows.length > 0
-    console.log(`jaEstaFeito=${jaEstaFeito}`)
+
+    const habit = await pool.query('SELECT * FROM habits WHERE id=$1 AND user_id=$2', [habitId, req.userId])
+    if (!habit.rows[0]) return res.status(404).json({ error: 'Hábito não encontrado' })
 
     if (jaEstaFeito) {
-      // Desmarca
       await pool.query(
         'DELETE FROM habit_logs WHERE habit_id=$1 AND user_id=$2 AND completed_at=$3',
         [habitId, req.userId, today]
       )
-      console.log('Desmarcado')
-      return res.json({ completed: false, streak: 0, points: 0, level: 1 })
+      await pool.query('UPDATE users SET points = GREATEST(0, points - $1) WHERE id=$2', [habit.rows[0].points_per_day, req.userId])
     } else {
-      // Marca
       await pool.query(
         'INSERT INTO habit_logs (habit_id, user_id, completed_at) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING',
         [habitId, req.userId, today]
       )
-      console.log('Marcado')
-      const streak = await calcStreak(habitId)
-      return res.json({ completed: true, streak, points: 0, level: 1 })
+      await pool.query('UPDATE users SET points = points + $1 WHERE id=$2', [habit.rows[0].points_per_day, req.userId])
     }
+
+    await pool.query(`
+      UPDATE users SET level = CASE
+        WHEN points < 100 THEN 1 WHEN points < 300 THEN 2 WHEN points < 600 THEN 3
+        WHEN points < 1000 THEN 4 WHEN points < 2000 THEN 5 ELSE 6
+      END WHERE id=$1`, [req.userId])
+
+    const nowCompleted = !jaEstaFeito
+    const streak = await calcStreak(habitId, today)
+    const userRes = await pool.query('SELECT points, level FROM users WHERE id=$1', [req.userId])
+
+    res.json({ completed: nowCompleted, streak, points: userRes.rows[0].points, level: userRes.rows[0].level })
   } catch (err) {
     console.error('TOGGLE erro:', err)
     res.status(500).json({ error: err.message })
@@ -136,7 +147,7 @@ router.post('/:id/toggle', async (req, res) => {
 
 router.get('/:id/history', async (req, res) => {
   const days = req.query.days || 90
-  const today = todayBrasilia()
+  const today = getClientDate(req)
   try {
     const result = await pool.query(
       `SELECT completed_at FROM habit_logs
@@ -152,7 +163,7 @@ router.get('/:id/history', async (req, res) => {
 })
 
 router.get('/:id/week', async (req, res) => {
-  const today = todayBrasilia()
+  const today = getClientDate(req)
   try {
     const result = await pool.query(
       `SELECT completed_at FROM habit_logs
